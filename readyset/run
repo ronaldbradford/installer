@@ -1,0 +1,225 @@
+#!/usr/bin/env bash
+
+[[ -n "${TRACE}" ]] && set -x
+
+readonly TMP_DIR="${TMP_DIR:-/tmp}"
+readonly LINUX_OS="/etc/os-release"
+readonly DEBIAN_OS="debian"
+readonly DEFAULT_ACTIONS="remove install version configure start cleanup"
+readonly DT_FORMAT="+%Y-%m-%d %H:%M:%S"
+declare PLATFORM
+
+
+# Internal Function
+error() {
+  local NOW
+
+  NOW=$(date "${DT_FORMAT}")
+  echo "${NOW} ERROR: $*"
+  exit 1
+}
+
+# Note warn() exists in some OS 
+warning() {
+  local NOW
+
+  NOW=$(date "${DT_FORMAT}")
+  echo "${NOW} WARN:  $*"
+  return 0
+}
+
+# Internal Function
+info() {
+  local NOW
+
+  NOW=$(date "${DT_FORMAT}")
+  echo "${NOW} INFO:  $*"
+  return 0
+}
+
+# Internal Function
+completed() {
+  info "Completed actions for '${PRODUCT}'"
+  exit 0
+}
+
+##
+## Provide the version of the product
+##
+version() {
+  ${PRODUCT} --version
+}
+
+env-exists() {
+  for ENV in "$@"; do
+    [[ -z "${!ENV}" ]] && error "'${ENV}' must be configured"
+  done
+}
+	
+test-connection() {
+  env-exists PRODUCT_DB DB_USER DB_PASSWD DB_HOST DB_PORT DB_NAME PRODUCT_CNF
+  case "${PRODUCT_DB}" in
+    "mysql")
+      OUTPUT=$(mysql -u${DB_USER} -p${DB_PASSWD} -h${DB_HOST} -P${DB_PORT} ${DB_NAME} -NAs -e "SELECT VERSION()" 2>&1 | grep -v "Using a password")
+      info "'${PRODUCT_DB}' version is '${OUTPUT}'"
+      ;;
+    *)
+      warn "'${PRODUCT_DB}' does not have test connection option"
+      ;;
+  esac
+}
+
+configure() {
+  env-exists PRODUCT_PORT PRODUCT_DB DB_USER DB_PASSWD DB_HOST DB_PORT DB_NAME PRODUCT_CNF
+  test-connection
+  sudo sed -i "s|^LISTEN_ADDRESS.*$|LISTEN_ADDRESS=0.0.0.0:${PRODUCT_PORT}|;s|^UPSTREAM_DB_URL.*|UPSTREAM_DB_URL=${PRODUCT_DB}://${DB_USER}:${DB_PASSWD}@${DB_HOST}:${DB_PORT}/${DB_NAME}|" "${PRODUCT_CNF}"
+}
+
+validate() {
+  env-exists PRODUCT_DB DB_USER DB_PASSWD DB_HOST PRODUCT_PORT DB_NAME PRODUCT_CNF
+  case "${PRODUCT_DB}" in
+    "mysql")
+      OUTPUT=$(mysql -u${DB_USER} -p${DB_PASSWD} -h127.0.0.1 -P${PRODUCT_PORT} ${DB_NAME} -NAs -e "SHOW READYSET STATUS" 2>&1 | grep -v "Using a password")
+      info "'${PRODUCT_DB}' status is '${OUTPUT}'"
+      ;;
+    *)
+      warn "'${PRODUCT_DB}' does not have a validate option"
+      ;;
+  esac
+}
+
+##
+## Start the product sevice and check the status
+##
+start() {
+  sudo systemctl start "${PRODUCT}"
+  sudo systemctl status "${PRODUCT}"
+}
+
+##
+## Stop the product sevice and check the status
+##
+stop() {
+  sudo systemctl stop "${PRODUCT}"
+  sudo systemctl status "${PRODUCT}"
+}
+
+install-linux() {
+  info "Installing '${PRODUCT}' on '${PLATFORM}'"
+  
+  [[ ! -f "${LINUX_OS}" ]] && error "Unable to detemrine '${PLATFORM}' OS. Missing '${LINUX_OS}'"
+  OS=$(grep "^ID_LIKE" /etc/os-release | cut -d'=' -f2)
+  [[ -z "${OS}" ]] && error "Unable to determine OS from '${LINUX_OS}'"
+
+  case "${OS}" in
+    "${DEBIAN_OS}")
+        info "Checking..."
+	#[[ $(dpkg -l | grep -l "${PRODUCT}") -gt 0 ]] && info "'${PRODUCT}' installation already detected"
+        info "Installing for '${OS}'"
+	cd "${TMP_DIR}" || exit 1
+	local PACKAGE_NAME="${PRODUCT}.deb"
+	info "Getting '${OS}' binary"
+	curl -o "${PACKAGE_NAME}" -sSL "${DEBIAN_BINARY}"
+	info $(md5sum "${PACKAGE_NAME}")
+	sudo dpkg -i "${PACKAGE_NAME}"
+	RC="$?"
+	[[ "${RC}" -ne 0 ]] && warn "installation returned '${RC}'"
+      ;;
+    *)
+     error "'${OS}' is not yet supported"
+     ;;
+  esac
+}
+
+install() {
+  PLATFORM="$(uname)"
+  case "${PLATFORM}" in
+    "Linux") 
+      install-linux
+      ;;
+    *)
+      error "'${PLATFORM}' is not yet supported for '${PRODUCT}'"
+      ;;
+  esac
+}
+
+remove() {
+  stop
+  sudo apt remove -y "${PRODUCT}"
+}
+
+purge() {
+  stop
+  remove
+  sudo apt purge -y "${PRODUCT}"
+}
+
+
+initialization() {
+  local INIT_CNF
+
+  INIT_CNF="$(dirname "${BASH_SOURCE[0]}")/.product.cnf"
+
+  [[ ! -s "${INIT_CNF}" ]] && error "'${PRODUCT_CNF}' was not found"
+
+  # shellcheck source=product.cnf
+  source "${INIT_CNF}"
+
+  [[ -z "${PRODUCT}" ]] && error "'${PRODUCT}' must be configured"
+  info "Initializing configuration for '${PRODUCT}'"
+}
+
+help() {
+  echo "
+
+  Usage: $0 action [action action ...]
+
+  Actions include:
+
+	- install
+	- version
+	- configure
+	- start
+	- validate
+	- cleanup
+
+	- stop
+	- remove
+	- purge
+	- help
+
+  Default actions are: ${DEFAULT_ACTIONS}
+	"
+  exit 0
+}
+
+
+main() {
+  local ACTIONS
+
+  [[ "$1" == "help" ]] && help  -- Quick cut to clean help output
+
+  initialization
+
+  if [[ $# -gt 0 ]]; then
+    ACTIONS="$*"
+    info "About to execute custom actions '${ACTIONS}'"
+  else
+    ACTIONS="${DEFAULT_ACTIONS}"
+    info "About to execute default actions '${ACTIONS}'"
+  fi
+
+  for ACTION in ${ACTIONS}; do
+    if declare -f "${ACTION}" > /dev/null; then
+      info "Executing '${ACTION}'..."
+      eval "${ACTION}"
+    else
+      warning "'${ACTION}' not found. Skipping..."
+    fi
+  done
+
+  completed
+}
+
+main "$@"
+exit 0

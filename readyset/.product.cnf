@@ -1,0 +1,17 @@
+# Product Configuration
+
+PRODUCT="readyset"
+PRODUCT_CNF="/etc/${PRODUCT}/${PRODUCT}.conf"
+PRODUCT_LOG="/var/lib/${PRODUCT}/${PRODUCT}.log.$(date +%Y-%m%d)"
+PRODUCT_DOCS_URL="https://readyset.io/docs/get-started/install-rs/binaries/install-package"
+DEBIAN_BINARY="https://github.com/readysettech/readyset/releases/download/stable-250123/readyset_1.11.0-1_amd64.deb"
+
+PRODUCT_PORT="3342"
+
+# Dependencies Configuration
+PRODUCT_DB="mysql"
+DB_USER="readyset"
+DB_PASSWD="*example-password*"
+DB_HOST="*example-host*"
+DB_NAME="mysql"
+DB_PORT="3306"
