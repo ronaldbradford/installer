@@ -90,7 +90,7 @@ validate() {
 }
 
 ##
-## Statys of the product sevice
+## Status of the product sevice
 ##
 status() {
   sudo systemctl status "${PRODUCT}"
@@ -178,14 +178,14 @@ initialization() {
 
   INIT_CNF="$(dirname "${BASH_SOURCE[0]}")/.product.cnf"
 
-  [[ ! -s "${INIT_CNF}" ]] && error "'${PRODUCT_CNF}' was not found"
+  [[ ! -s "${INIT_CNF}" ]] && error "'${INIT_CNF}' was not found or is empty"
 
   # shellcheck source=product.cnf
   source "${INIT_CNF}"
 
-  [[ -z "${PRODUCT}" ]] && error "'${PRODUCT}' must be configured"
+  [[ -z "${PRODUCT}" ]] && error "PRODUCT must be configured in '${INIT_CNF}'"
 
-  [[ $(grep -c "example-host" ${INIT_CNF}) -eq 1 ]] && error "'${PRODUCT_CNF}' contains default example settings"
+  [[ $(grep -c "example-host" ${INIT_CNF}) -eq 1 ]] && error "'${INIT_CNF}' contains default example settings"
   info "Initializing configuration for '${PRODUCT}'"
 }
 
