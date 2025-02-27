@@ -147,7 +147,7 @@ install-linux() {
 install() {
   PLATFORM="$(uname)"
   case "${PLATFORM}" in
-    "Linux") 
+    "Linux")
       eval ${FUNCNAME[0]}-${PLATFORM,,}
       ;;
     *)
@@ -165,17 +165,40 @@ logs() {
   sudo tail -${LENGTH} "${LOG_FILE}"
 }
 
-remove() {
+remove-liunx() {
   stop
   sudo apt remove -y "${PRODUCT}"
 }
 
-purge() {
+remove() {
+  PLATFORM="$(uname)"
+  case "${PLATFORM}" in
+    "Linux")
+      eval ${FUNCNAME[0]}-${PLATFORM,,}
+      ;;
+    *)
+      error "'${PLATFORM}' is not yet supported for '${PRODUCT}'"
+      ;;
+  esac
+}
+
+purge-linux() {
   stop
   remove
   sudo apt purge -y "${PRODUCT}"
 }
 
+purge() {
+  PLATFORM="$(uname)"
+  case "${PLATFORM}" in
+    "Linux")
+      eval ${FUNCNAME[0]}-${PLATFORM,,}
+      ;;
+    *)
+      error "'${PLATFORM}' is not yet supported for '${PRODUCT}'"
+      ;;
+  esac
+}
 
 initialization() {
   local INIT_CNF
