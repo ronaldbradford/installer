@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -o pipefail
 
 [[ -n "${TRACE}" ]] && set -x
 
@@ -166,6 +167,8 @@ initialization() {
   source "${INIT_CNF}"
 
   [[ -z "${PRODUCT}" ]] && error "'${PRODUCT}' must be configured"
+
+  [[ $(grep -c "example-host" ${INIT_CNF}) -eq 1 ]] && error "'${PRODUCT_CNF}' contains default example settings"
   info "Initializing configuration for '${PRODUCT}'"
 }
 
