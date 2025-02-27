@@ -47,6 +47,10 @@ completed() {
 ## Provide the version of the product
 ##
 version() {
+  if ! command -v "${PRODUCT}" &>/dev/null; then
+    error "'${PRODUCT}' is not installed or not in PATH"
+  fi
+
   ${PRODUCT} --version
 }
 
@@ -80,6 +84,15 @@ env-exists() {
     [[ -z "${!ENV}" ]] && error "'${ENV}' must be configured"
   done
 }
+
+configure() {
+  noop "${FUNCNAME[0]}"
+}
+
+validate() {
+  ${PRODUCT} cpu --threads=1 --time=4 run
+}
+
 	
 install-linux() {
   info "Installing '${PRODUCT}' on '${PLATFORM}'"
@@ -104,11 +117,34 @@ install-linux() {
   esac
 }
 
+install-darwin() {
+  brew install ${PRODUCT} #TODO --with-postgresql
+}
+
+remove-linux() {
+  stop
+  sudo apt remove -y "${PRODUCT}"
+}
+
+remove-darwin() {
+  brew remove "${PRODUCT}"
+}
+
+purge-linux() {
+  stop
+  remove
+  sudo apt purge -y "${PRODUCT}"
+}
+
+purge-darwin() {
+  noop "${FUNCNAME[0]}"
+}
+
 install() {
   PLATFORM="$(uname)"
   case "${PLATFORM}" in
-    "Linux") 
-      install-linux
+    "Linux" | "Darwin")
+      eval ${FUNCNAME[0]}-${PLATFORM,,}
       ;;
     *)
       error "'${PLATFORM}' is not yet supported for '${PRODUCT}'"
@@ -117,14 +153,27 @@ install() {
 }
 
 remove() {
-  stop
-  sudo apt remove -y "${PRODUCT}"
+  PLATFORM="$(uname)"
+  case "${PLATFORM}" in
+    "Linux" | "Darwin")
+      eval ${FUNCNAME[0]}-${PLATFORM,,}
+      ;;
+    *)
+      error "'${PLATFORM}' is not yet supported for '${PRODUCT}'"
+      ;;
+  esac
 }
 
 purge() {
-  stop
-  remove
-  sudo apt purge -y "${PRODUCT}"
+  local PLATFORM="$(uname)"
+  case "${PLATFORM}" in
+    "Linux" | "Darwin")
+      eval ${FUNCNAME[0]}-${PLATFORM,,}
+      ;;
+    *)
+      error "'${PLATFORM}' is not yet supported for '${PRODUCT}'"
+      ;;
+  esac
 }
 
 
@@ -153,6 +202,7 @@ help() {
 
 	- install
 	- version
+	- validate
 
 	- remove
 	- purge
