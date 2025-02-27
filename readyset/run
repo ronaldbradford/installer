@@ -90,11 +90,19 @@ validate() {
 }
 
 ##
+## Statys of the product sevice
+##
+status() {
+  sudo systemctl status "${PRODUCT}"
+}
+
+##
 ## Start the product sevice and check the status
 ##
 start() {
   sudo systemctl start "${PRODUCT}"
-  sudo systemctl status "${PRODUCT}"
+  status
+  logs 10
 }
 
 ##
@@ -102,7 +110,7 @@ start() {
 ##
 stop() {
   sudo systemctl stop "${PRODUCT}"
-  sudo systemctl status "${PRODUCT}"
+  status
 }
 
 install-linux() {
@@ -142,6 +150,15 @@ install() {
       error "'${PLATFORM}' is not yet supported for '${PRODUCT}'"
       ;;
   esac
+}
+
+logs() {
+  local LENGTH="${1:-100}"
+  local LOG_FILE="/var/lib/${PRODUCT}/${PRODUCT}.log.$(date +%Y-%m-%d)"
+
+  #[[ ! -f "${LOG_FILE}" ]] && error "'${LOG_FILE}' was not found"
+  sudo ls -l "${LOG_FILE}"
+  sudo tail -${LENGTH} "${LOG_FILE}"
 }
 
 remove() {
@@ -186,6 +203,8 @@ help() {
 	- validate
 	- cleanup
 
+	- logs
+	- status
 	- stop
 	- remove
 	- purge
