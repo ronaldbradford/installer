@@ -1,0 +1,188 @@
+#!/usr/bin/env bash
+set -o pipefail
+
+[[ -n "${TRACE}" ]] && set -x
+
+readonly TMP_DIR="${TMP_DIR:-/tmp}"
+readonly LINUX_OS="/etc/os-release"
+readonly DEBIAN_OS="debian"
+readonly DEFAULT_ACTIONS="remove install version"
+readonly DT_FORMAT="+%Y-%m-%d %H:%M:%S"
+declare PLATFORM
+
+# Internal Function
+error() {
+  local NOW
+
+  NOW=$(date "${DT_FORMAT}")
+  echo "${NOW} ERROR: $*"
+  exit 1
+}
+
+# Note warn() exists in some OS 
+warning() {
+  local NOW
+
+  NOW=$(date "${DT_FORMAT}")
+  echo "${NOW} WARN:  $*"
+  return 0
+}
+
+# Internal Function
+info() {
+  local NOW
+
+  NOW=$(date "${DT_FORMAT}")
+  echo "${NOW} INFO:  $*"
+  return 0
+}
+
+# Internal Function
+completed() {
+  info "Completed actions for '${PRODUCT}'"
+  exit 0
+}
+
+##
+## Provide the version of the product
+##
+version() {
+  if ! command -v "${PRODUCT}" &>/dev/null; then
+    error "'${PRODUCT}' is not installed or not in PATH"
+  fi
+
+  ${PRODUCT} --version
+}
+
+noop() {
+  warning "'${1}' is not an operation for '${PRODUCT}'"
+}
+
+##
+## Status of the product sevice
+##
+status() {
+  noop "${FUNCNAME[0]}"
+}
+
+##
+## Start the product sevice and check the status
+##
+start() {
+  noop "${FUNCNAME[0]}"
+}
+
+##
+## Stop the product sevice and check the status
+##
+stop() {
+  noop "${FUNCNAME[0]}"
+}
+
+env-exists() {
+  for ENV in "$@"; do
+    [[ -z "${!ENV}" ]] && error "'${ENV}' must be configured"
+  done
+}
+
+configure() {
+  noop "${FUNCNAME[0]}"
+}
+
+validate() {
+  echo "TODO ${FUNCNAME[0]}"
+}
+
+	
+# See https://github.com/percona/pmm
+install() {
+  docker pull percona/${PRODUCT_SERVER}:${VERSION}
+  docker volume create ${PRODUCT_DATA}
+  docker run --detach --restart always \
+         --publish 443:443 \
+         --volume ${PRODUCT_DATA}:/srv \
+         --name ${PRODUCT_SERVER} \
+         percona/${PRODUCT_SERVER}:${VERSION}
+}
+
+remove() {
+  docker stop ${PRODUCT_SERVER}
+  docker rm ${PRODUCT_SERVER}
+  docker volume rm ${PRODUCT_DATA}
+}
+
+purge() {
+  docker rmi percona/${PRODUCT_SERVER}:${VERSION}
+}
+
+logs() {
+  docker logs ${PRODUCT_SERVER}
+}
+
+initialization() {
+  local INIT_CNF
+
+  INIT_CNF="$(dirname "${BASH_SOURCE[0]}")/.product.cnf"
+
+  [[ ! -s "${INIT_CNF}" ]] && error "'${INIT_CNF}' was not found or is empty"
+
+  # shellcheck source=product.cnf
+  source "${INIT_CNF}"
+
+  [[ -z "${PRODUCT}" ]] && error "PRODUCT must be configured in '${INIT_CNF}'"
+
+  [[ $(grep -c "example-host" ${INIT_CNF}) -eq 1 ]] && error "'${INIT_CNF}' contains default example settings"
+  info "Initializing configuration for '${PRODUCT}'"
+}
+
+help() {
+  echo "
+
+  Usage: $0 action [action action ...]
+
+  Actions include:
+
+	- install
+	- version
+	- validate
+
+	- remove
+	- logs
+	- purge
+	- help
+
+  Default actions are: ${DEFAULT_ACTIONS}
+	"
+  exit 0
+}
+
+
+main() {
+  local ACTIONS
+
+  [[ "$1" == "help" ]] && help  -- Quick cut to clean help output
+
+  initialization
+
+  if [[ $# -gt 0 ]]; then
+    ACTIONS="$*"
+    info "About to execute custom actions '${ACTIONS}'"
+  else
+    ACTIONS="${DEFAULT_ACTIONS}"
+    info "About to execute default actions '${ACTIONS}'"
+  fi
+
+  for ACTION in ${ACTIONS}; do
+    if declare -f "${ACTION}" > /dev/null; then
+      info "Executing '${ACTION}'..."
+      eval "${ACTION}"
+    else
+      warning "'${ACTION}' not found. Skipping..."
+    fi
+  done
+
+  completed
+}
+
+main "$@"
+exit 0

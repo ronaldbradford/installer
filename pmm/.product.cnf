@@ -1,0 +1,6 @@
+# sysbench product configuration
+PRODUCT="pmm"
+PRODUCT_SERVER="${PRODUCT}-server"
+PRODUCT_DATA="${PRODUCT}-data"
+VERSION="2"
+
