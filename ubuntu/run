@@ -1,0 +1,188 @@
+#!/usr/bin/env bash
+set -o nounset
+set -o pipefail
+
+[[ -n "${TRACE:-}" ]] && set -x
+
+readonly LINUX_OS="/etc/os-release"
+readonly DEBIAN_OS="debian"
+readonly DEFAULT_ACTIONS="install ssh"
+readonly DT_FORMAT="+%Y-%m-%d %H:%M:%S"
+readonly PACKAGE_LIST="net-tools jq pigz git screen unzip hwinfo curl wget"
+readonly DOCKER_PACKAGE_LIST="docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin"
+readonly PRODUCT="ubuntu"
+declare PLATFORM
+declare OS
+declare ARCH
+
+
+# Internal Function
+error() {
+  local NOW
+
+  NOW=$(date "${DT_FORMAT}")
+  echo "${NOW} ERROR: $*"
+  exit 1
+}
+
+# Note warn() exists in some OS 
+warning() {
+  local NOW
+
+  NOW=$(date "${DT_FORMAT}")
+  echo "${NOW} WARN:  $*"
+  return 0
+}
+
+# Internal Function
+info() {
+  local NOW
+
+  NOW=$(date "${DT_FORMAT}")
+  echo "${NOW} INFO:  $*"
+  return 0
+}
+
+# Internal Function
+completed() {
+  info "Completed actions for '${PRODUCT}'"
+  exit 0
+}
+
+ssh() {
+  if systemctl is-active --quiet ssh; then
+    info "ssh server installed"
+  else
+    info "Installing ssh server"
+    sudo apt install -y -qq openssh-server
+    sudo systemctl enable ssh --now
+    systemctl status ssh
+  fi
+}
+
+sudoers() {
+  warning "You will be prompted to enter your password to setup passwordless sudo"
+  echo "${USER} ALL = (ALL) NOPASSWD: ALL" > /tmp/${USER}
+  sudo chown root:root /tmp/${USER}
+  sudo chmod 400 /tmp/${USER}
+  sudo mv /tmp/${USER} /etc/sudoers.d
+  [[ $(sudo whoami) != "root" ]] && error "sudoers setup for '${USER}' failed"
+}
+
+setup-python() {
+  sudo update-alternatives --install /usr/bin/python python /usr/bin/python3 1
+  sudo apt install -y -qq python3-pip
+  info "$(python --version)"
+}
+
+setup-docker() {
+  # See https://docs.docker.com/engine/install/ubuntu/
+  sudo install -m 0755 -d /etc/apt/keyrings
+  sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+  sudo chmod a+r /etc/apt/keyrings/docker.asc
+  echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
+  $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}") stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+  sudo apt-get update -y
+  
+  sudo apt install -y -qq ${DOCKER_PACKAGE_LIST}
+  sudo gpasswd -a "${USER}" docker
+  newgrp docker
+}
+
+update() {
+  sudo apt-get update -y
+}
+
+install() {
+
+  if ! sudo -n true 2>/dev/null; then
+    error "Execute './run sudoers' first to grant sudo access"
+  fi
+
+  # In future we might built up list of packages based on checking commands
+  # net-tools gives us ifconfig netstat
+
+  info "Installing default package list"
+  sudo apt-get install -y -qq ${PACKAGE_LIST}
+
+  command -v python 2>&1 >/dev/null || setup-python
+  command -v docker 2>&1 >/dev/null || setup-docker
+
+  products
+
+  return 0
+}
+
+products() {
+  for INSTALLED_PRODUCT in python git jq docker; do
+    info ".. $(${INSTALLED_PRODUCT} --version)"
+  done
+}
+
+version() {
+  cat /etc/lsb-release
+}
+
+initialization() {
+  PLATFORM="$(uname -s)"
+  ARCH="$(uname -m)"
+
+  [[ "${PLATFORM}" != "Linux" ]] && error "This installation is only valid for 'Linux'"
+  [[ ! -f "${LINUX_OS}" ]] && error "Unable to detemrine '${PLATFORM}' OS. Missing '${LINUX_OS}'"
+  OS=$(grep "^ID_LIKE" /etc/os-release | cut -d'=' -f2)
+  [[ -z "${OS}" ]] && error "Unable to determine OS from '${LINUX_OS}'"
+
+  [[ "${OS}" != "${DEBIAN_OS}" ]] && error "This installation is only valid for '${DEBIAN_OS}'"
+}
+
+help() {
+  echo "
+
+  Usage: $0 action [action action ...]
+
+  Actions include:
+
+	- install
+	- version
+	- validate
+
+	- ssh
+	- help
+
+  Default actions are: ${DEFAULT_ACTIONS}
+	"
+  exit 0
+}
+
+main() {
+  local ACTIONS
+
+  [[ "${1:-}" == "help" ]] && help  -- Quick cut to clean help output
+
+  initialization
+
+  if [[ $# -gt 0 ]]; then
+    ACTIONS="$*"
+    info "About to execute custom actions '${ACTIONS}'"
+  else
+    ACTIONS="${DEFAULT_ACTIONS}"
+    info "About to execute default actions '${ACTIONS}'"
+  fi
+
+  for ACTION in ${ACTIONS}; do
+    if declare -f "${ACTION}" > /dev/null; then
+      info "Executing '${ACTION}'..."
+      eval "${ACTION}"
+    else
+      warning "'${ACTION}' not found. Skipping..."
+    fi
+  done
+
+  completed
+
+}
+
+main "$@"
+exit 0
