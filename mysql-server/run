@@ -1,0 +1,276 @@
+#!/usr/bin/env bash
+set -o pipefail
+
+[[ -n "${TRACE}" ]] && set -x
+
+readonly TMP_DIR="${TMP_DIR:-/tmp}"
+readonly LINUX_OS="/etc/os-release"
+readonly DEBIAN_OS="debian"
+readonly APT_FILE="mysql-apt-config_0.8.33-1_all.deb"
+readonly DEFAULT_ACTIONS="install version configure validate"
+readonly DT_FORMAT="+%Y-%m-%d %H:%M:%S"
+declare PLATFORM
+
+
+# Internal Function
+error() {
+  local NOW
+
+  NOW=$(date "${DT_FORMAT}")
+  echo "${NOW} ERROR: $*"
+  exit 1
+}
+
+# Note warn() exists in some OS 
+warning() {
+  local NOW
+
+  NOW=$(date "${DT_FORMAT}")
+  echo "${NOW} WARN:  $*"
+  return 0
+}
+
+# Internal Function
+info() {
+  local NOW
+
+  NOW=$(date "${DT_FORMAT}")
+  echo "${NOW} INFO:  $*"
+  return 0
+}
+
+# Internal Function
+completed() {
+  info "Completed actions for '${PRODUCT}'"
+  exit 0
+}
+
+##
+## Provide the version of the product
+##
+version() {
+  if ! command -v "${PRODUCT}" &>/dev/null; then
+    error "'${PRODUCT}' is not installed or not in PATH"
+  fi
+
+  ${PRODUCT} --version
+}
+
+env-exists() {
+  for ENV in "$@"; do
+    [[ -z "${!ENV}" ]] && error "'${ENV}' must be configured"
+  done
+}
+	
+test-connection() {
+  env-exists PRODUCT_DB DB_USER DB_PASSWD DB_HOST DB_PORT DB_NAME PRODUCT_CNF
+  case "${PRODUCT_DB}" in
+    "mysql")
+      OUTPUT=$(mysql -u${DB_USER} -p${DB_PASSWD} -h${DB_HOST} -P${DB_PORT} ${DB_NAME} -NAs -e "SELECT VERSION()" 2>&1 | grep -v "Using a password")
+      info "'${PRODUCT_DB}' version is '${OUTPUT}'"
+      ;;
+    *)
+      warn "'${PRODUCT_DB}' does not have test connection option"
+      ;;
+  esac
+}
+
+configure() {
+  return 0
+}
+
+validate() {
+  if ! command -v "${PRODUCT}" &>/dev/null; then
+    error "'${PRODUCT}' is not installed or not in PATH"
+  fi
+
+  sudo mysql -e "SELECT VERSION()"
+}
+
+##
+## Status of the product sevice
+##
+status() {
+  systemctl --no-pager status "${PRODUCT}" #2>/dev/null
+  #[[ $? -ne 0 ]] && error "'${FUNCNAME[0]}' failed"
+}
+
+##
+## Start the product sevice and check the status
+##
+start() {
+  sudo systemctl --no-pager start "${PRODUCT}"
+  [[ $? -ne 0 ]] && error "'${FUNCNAME[0]}' failed"
+  status
+  logs 10
+}
+
+##
+## Stop the product sevice and check the status
+##
+stop() {
+  sudo systemctl --no-pager stop "${PRODUCT}"
+  [[ $? -ne 0 ]] && error "'${FUNCNAME[0]}' failed"
+  status
+}
+
+install-linux() {
+  info "Installing '${PRODUCT}' on '${PLATFORM}'"
+  
+  [[ ! -f "${LINUX_OS}" ]] && error "Unable to detemrine '${PLATFORM}' OS. Missing '${LINUX_OS}'"
+  OS=$(grep "^ID_LIKE" /etc/os-release | cut -d'=' -f2)
+  [[ -z "${OS}" ]] && error "Unable to determine OS from '${LINUX_OS}'"
+
+  case "${OS}" in
+    "${DEBIAN_OS}")
+        if [[ $(sudo dpkg -l | grep -c mysql-apt-config) -eq 0 ]]; then 
+          info "Configuring..."
+          curl -o "${TMP_DIR}/${APT_FILE}" -sSL "https://dev.mysql.com/get/${APT_FILE}"
+          sudo DEBIAN_FRONTEND=noninteractive dpkg -i "${TMP_DIR}/${APT_FILE}" || error "Installation of '${APT_FILE}' failed"
+          rm -f "${TMP_DIR}/${APT_FILE}"
+          sudo apt-get update -y
+        fi
+        info "Installing for '${OS}'"
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "${PRODUCT_SERVER}"
+        info "MySQL client $(mysql --version)"
+      ;;
+    *)
+     error "'${OS}' is not yet supported"
+     ;;
+  esac
+}
+
+install() {
+  PLATFORM="$(uname)"
+  case "${PLATFORM}" in
+    "Linux")
+      eval ${FUNCNAME[0]}-${PLATFORM,,}
+      ;;
+    *)
+      error "'${PLATFORM}' is not yet supported for '${PRODUCT}'"
+      ;;
+  esac
+}
+
+logs() {
+  local LENGTH="${1:-100}"
+  local LOG_FILE="/var/log/${PRODUCT}/error.log"
+
+  if ! sudo test -f "${LOG_FILE}"; then
+    warning "'${LOG_FILE}' was not found"
+    return 1
+  fi
+  sudo ls -l "${LOG_FILE}"
+  sudo tail -${LENGTH} "${LOG_FILE}"
+}
+
+remove-linux() {
+  #sudo apt remove -y "${PRODUCT_SERVER}" mysql-apt-config
+  sudo apt remove -y "${PRODUCT}"*
+  sudo apt remove -y libmysqlclient21  mysql-common mysql-community-client mysql-community-server
+  sudo apt -y autoremove
+  sudo rm -rf /etc/${PRODUCT} /var/lib/${PRODUCT}*
+  [[ $(sudo dpkg -l | grep -c "${PRODUCT}") -gt 0 ]] && warning "'${PRODUCT}' Not fully removed"
+}
+
+remove() {
+  PLATFORM="$(uname)"
+  case "${PLATFORM}" in
+    "Linux")
+      eval ${FUNCNAME[0]}-${PLATFORM,,}
+      ;;
+    *)
+      error "'${PLATFORM}' is not yet supported for '${PRODUCT}'"
+      ;;
+  esac
+}
+
+purge-linux() {
+  #sudo DEBIAN_FRONTEND=noninteractive apt purge -y "${PRODUCT_SERVER}"
+  sudo DEBIAN_FRONTEND=noninteractive apt-get purge ${PRODUCT}* -y -qq
+#${PRODUCT_SERVER}-8.0 ${PRODUCT}-common ${PRODUCT}-community-client ${PRODUCT}-community-server mysql-apt-config -y
+}
+
+purge() {
+  PLATFORM="$(uname)"
+  case "${PLATFORM}" in
+    "Linux")
+      eval ${FUNCNAME[0]}-${PLATFORM,,}
+      ;;
+    *)
+      error "'${PLATFORM}' is not yet supported for '${PRODUCT}'"
+      ;;
+  esac
+}
+
+initialization() {
+  local INIT_CNF
+
+  INIT_CNF="$(dirname "${BASH_SOURCE[0]}")/.product.cnf"
+
+  [[ ! -s "${INIT_CNF}" ]] && error "'${INIT_CNF}' was not found or is empty"
+
+  # shellcheck source=product.cnf
+  source "${INIT_CNF}"
+
+  [[ -z "${PRODUCT}" ]] && error "PRODUCT must be configured in '${INIT_CNF}'"
+
+  [[ $(grep -c "example-host" ${INIT_CNF}) -eq 1 ]] && error "'${INIT_CNF}' contains default example settings"
+  info "Initializing configuration for '${PRODUCT}'"
+}
+
+help() {
+  echo "
+
+  Usage: $0 action [action action ...]
+
+  Actions include:
+
+	- install
+	- version
+	- configure
+	- start
+	- validate
+
+	- logs
+	- status
+	- stop
+	- remove
+	- purge
+	- help
+
+  Default actions are: ${DEFAULT_ACTIONS}
+	"
+  exit 0
+}
+
+
+main() {
+  local ACTIONS
+
+  [[ "$1" == "help" ]] && help  -- Quick cut to clean help output
+
+  initialization
+
+  if [[ $# -gt 0 ]]; then
+    ACTIONS="$*"
+    info "About to execute custom actions '${ACTIONS}'"
+  else
+    ACTIONS="${DEFAULT_ACTIONS}"
+    info "About to execute default actions '${ACTIONS}'"
+  fi
+
+  for ACTION in ${ACTIONS}; do
+    if declare -f "${ACTION}" > /dev/null; then
+      info "Executing '${ACTION}'..."
+      eval "${ACTION}"
+    else
+      warning "'${ACTION}' not found. Skipping..."
+    fi
+  done
+
+  completed
+}
+
+main "$@"
+exit 0
