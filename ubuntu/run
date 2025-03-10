@@ -8,7 +8,7 @@ readonly LINUX_OS="/etc/os-release"
 readonly DEBIAN_OS="debian"
 readonly DEFAULT_ACTIONS="install ssh"
 readonly DT_FORMAT="+%Y-%m-%d %H:%M:%S"
-readonly PACKAGE_LIST="net-tools jq pigz git screen unzip hwinfo curl wget"
+readonly PACKAGE_LIST="net-tools jq pigz git screen unzip hwinfo curl wget tree"
 readonly DOCKER_PACKAGE_LIST="docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin"
 readonly PRODUCT="ubuntu"
 declare PLATFORM
