@@ -165,7 +165,7 @@ logs() {
   sudo tail -${LENGTH} "${LOG_FILE}"
 }
 
-remove-liunx() {
+remove-linux() {
   stop
   sudo apt remove -y "${PRODUCT}"
 }
