@@ -1,5 +1,11 @@
 # installer
-Installers for any software
+Installers for any software across different platforms
+
+* [sysbench](https://github.com/akopytov/sysbench)
+* [dbdeployer](https://github.com/akopytov/sysbench)
+* [readyset](https://readyset.io/docs/get-started/install-rs)
+* [pmm](https://github.com/percona/pmm) Percona Monitoring and Management
+* [pgloader](https://pgloader.readthedocs.io/)
 
 
 # Run default recommendation installation
